@@ -3,6 +3,7 @@ var multer = require('multer');
 var express = require('express');
 var fs = require('fs');
 var os = require('os');
+var request = require('request');
 var app = express();
 
 var count = 0;
@@ -10,13 +11,19 @@ var hostname = os.hostname();
 var recentKey = "recent";
 var imageKey = "images";
 var serversKey = "servers";
+var runningServersKey = "run_servers";
+var hostnameURL = "";
 var mainServerURL = "";
 var serversCount = 0;
 var startPort = 3000;
+var currentServerPort = 3000;
 
 // REDIS
 var client = redis.createClient(6379, '127.0.0.1', {});
 client.del(serversKey, function (err, reply) {
+  if (err) throw err;
+});
+client.del(runningServersKey, function (err, reply) {
   if (err) throw err;
 });
 
@@ -24,15 +31,54 @@ client.del(serversKey, function (err, reply) {
 
 // Add hook to make it easier to get all visited URLS.
 app.use(function (req, res, next) {
-  console.log(req.method, req.url);
+  var url = req.protocol + '://' + req.get('host');
+  client.lrange(runningServersKey, 0, -1, function (err, reply) {
+    if (err) throw err;
+    // console.log(reply);
+    if (reply && reply.indexOf(url) != -1) {
+      client.lrem(runningServersKey, 0, url, function (err, reply) {
+        if (err) throw err;
+        console.log("Request has been taken up by: " + url + ". Will delete from running list.");
+        client.lpush(serversKey, url, function (err, reply) {
+          console.log("Server added back to free servers list.");
+          if (err) throw err;
+        });
+      });
+      next();
+    }
+    else {
+      client.rpoplpush(serversKey, runningServersKey, function (err, reply) {
+        if (reply == null) {
+          console.log("No servers to delegate to, will perform myself: " + url);
+          next();
+        }
+        else {
+          url = reply + req.originalUrl;
+          //http://stackoverflow.com/questions/17612695/expressjs-how-to-redirect-a-post-request-with-parameters
+          if (req.method == "GET") {
+            request({ url: url }, function (err, remoteResponse, remoteBody) {
+              if (err) throw err;
+              res.send(remoteBody);
+            });
+          }
+          else if (req.method == "POST") {
+            res.redirect(307, url);
+          }
+        }
+      });
+    }
+  });
+});
+
+app.use(function (req, res, next) {
   //http://stackoverflow.com/questions/10183291/how-to-get-the-full-url-in-express
   var url = req.protocol + '://' + req.get('host') + req.originalUrl;
   client.lpush(recentKey, url, function (err, reply) {
-    if (err)
-      console.log("Some error in building recent: " + err);
-    else
-      client.ltrim(recentKey, 0, 4, redis.print);
-    next();
+    if (err) throw err;
+    client.ltrim(recentKey, 0, 4, function (err, reply) {
+      if (err) throw err;
+      next();
+    });
   });
 });
 
@@ -54,7 +100,7 @@ app.post('/upload', [multer({ dest: './uploads/' }), function (req, res) {
       var img = new Buffer(data).toString('base64');
       client.lpush(imageKey, img, function (err, reply) {
         if (err) throw err;
-        res.status(204).end();
+        res.send("Uploaded.");
       });
     });
   }
@@ -76,9 +122,10 @@ app.get('/meow', function (req, res) {
 
 app.get('/set/:key', function (req, res) {
   var value = "This message will self-destruct in 10 seconds.";
-  client.set(req.params.key, value, redis.print);
-  client.expire(req.params.key, 10);
-  res.send("<p>SET operation.<br/><br/>Key: " + req.params.key + "<br/>Value: " + value + "</p>");
+  client.set(req.params.key, value, function (err, reply) {
+    client.expire(req.params.key, 10);
+    res.send("<p>SET operation.<br/><br/>Key: " + req.params.key + "<br/>Value: " + value + "</p>");
+  });
 });
 
 app.get('/get/:key', function (req, res) {
@@ -103,35 +150,46 @@ app.get('/spawn', function (req, res) {
 });
 
 app.get('/listservers', function (req, res) {
-  client.lrange(serversKey, 0, -1, function (err, reply) {
-    var replyMessage = "<p>Main server is at " + mainServerURL + ". <br/>Other servers spawned are:<br/>";
-    for (var proxy of reply) {
+  client.lrange(serversKey, 0, -1, function (err, reply1) {
+    var replyMessage = "<p>Main server is at " + mainServerURL + ". <br/>Free servers spawned are:<br/>";
+    for (var proxy of reply1) {
       replyMessage += proxy + "<br/>";
     }
-    res.send(replyMessage);
+    client.lrange(runningServersKey, 0, -1, function (err, reply2) {
+      replyMessage += "Busy servers: <br/>";
+      for (var proxy of reply2) {
+        replyMessage += proxy + "<br/>";
+      }
+      replyMessage += "</p>";
+      res.send(replyMessage);
+    });
   });
 });
 
 app.get('/destroy', function (req, res) {
-  if (serversCount == 0) {
-    res.send("<p>Nothing to destroy.</p>");
-  }
-  else {
-    var randomServerIndex = getRandomIntInclusive(0, serversCount - 1);
-    client.lindex(serversKey, randomServerIndex, function (err, reply1) {
-      if (err) throw err;
-      client.lrem(serversKey, randomServerIndex, reply1, function (err, reply2) {
-        serversCount--;
-        res.send("<p>Server at " + reply1 + " destroyed.");
+  client.llen(serversKey, function (err, reply) {
+    if (err) throw err;
+    if (parseInt(reply) == 0) {
+      res.send("<p>Nothing to destroy.</p>");
+    }
+    else {
+      var randomServerIndex = getRandomIntInclusive(0, serversCount - 1);
+      client.lindex(serversKey, randomServerIndex, function (err, reply1) {
+        if (err) throw err;
+        client.lrem(serversKey, 0, reply1, function (err, reply2) {
+          serversCount--;
+          res.send("<p>Server at " + reply1 + " destroyed.");
+        });
       });
-    });
-  }
+    }
+  });
 });
 
 //HTTP SERVER
 var server = app.listen(startPort++, hostname, function () {
   var host = server.address().address;
   var port = server.address().port;
+  hostnameURL = "http://" + host + ":";
   mainServerURL = "http://" + host + ":" + port;
   console.log('Main app listening at ' + mainServerURL);
 });
