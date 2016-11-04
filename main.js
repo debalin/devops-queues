@@ -45,7 +45,7 @@ app.use(function (req, res, next) {
     }
     else {
       client.rpoplpush(serversKey, runningServersKey, function (err, reply) {
-        if (reply == null) {
+        if (reply == null) {  
           console.log("No servers to delegate to, will perform myself: " + url);
           next();
         }

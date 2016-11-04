@@ -49,7 +49,9 @@ The goal here is to get comfortable with using [`redis`](http://redis.io/topics/
 		2. If the `rpoplpush` returned a non-null value, then it was able to push something to the busy servers `redis` list. Now, this current server just needs to forward the request to the server URL that it just pushed to the busy servers `redis` list. Then two different cases can ensue:
 			1. The request was a `GET` request. This is simple - just use the `request` module to make a `GET` request to the specified server and once it returns, send the response back to the user. In this case, the user won't be able to see the proxy server URL in the browser address bar and hence won't be able to determine which server process actually handled its request. 
 			2. For `POST` requests (like `/upload`), I used redirection. I could use either for both of these cases, but using both allowed me to learn the pros and cons of them. Redirecting `POST` requests is a little tricky, because just a normal `res.redirect(url)` will not make the request `POST` but will rather convert it to a default `GET` request, thus losing the `POST` parameters. This is a norm for HTTP requests (read [here](http://softwareengineering.stackexchange.com/questions/99894/why-doesnt-http-have-post-redirect)). To maintain the form data and the request method, the redirect has to be done with the status code of `307`. This is what I have done - `res.redirect(307, url)`. Also, to use `curl` properly with this redirection, you have to add the `-L` flag which tells `curl` to follow redirects.                 
+
+
 ### Screencast
 
-
+https://www.youtube.com/watch?v=aZ9JBP2wp14&feature=youtu.be
 
