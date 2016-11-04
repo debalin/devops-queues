@@ -45,7 +45,7 @@ app.use(function (req, res, next) {
     }
     else {
       client.rpoplpush(serversKey, runningServersKey, function (err, reply) {
-        if (reply == null) {  
+        if (reply == null) {
           console.log("No servers to delegate to, will perform myself: " + url);
           next();
         }
@@ -165,7 +165,7 @@ app.get('/listservers', function (req, res) {
 app.get('/destroy', function (req, res) {
   client.llen(serversKey, function (err, reply) {
     if (err) throw err;
-    serversCount = parseInt(reply); 
+    serversCount = parseInt(reply);
     if (serversCount == 0) {
       res.send("<p>Nothing to destroy.</p>");
     }
