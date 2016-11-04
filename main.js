@@ -14,7 +14,6 @@ var serversKey = "servers";
 var runningServersKey = "run_servers";
 var hostnameURL = "";
 var mainServerURL = "";
-var serversCount = 0;
 var startPort = 3000;
 var currentServerPort = 3000;
 
@@ -29,12 +28,10 @@ client.del(runningServersKey, function (err, reply) {
 
 // WEB ROUTES
 
-// Add hook to make it easier to get all visited URLS.
 app.use(function (req, res, next) {
   var url = req.protocol + '://' + req.get('host');
   client.lrange(runningServersKey, 0, -1, function (err, reply) {
     if (err) throw err;
-    // console.log(reply);
     if (reply && reply.indexOf(url) != -1) {
       client.lrem(runningServersKey, 0, url, function (err, reply) {
         if (err) throw err;
@@ -143,7 +140,6 @@ app.get('/spawn', function (req, res) {
     console.log('Another app listening at ' + url + '.');
     client.rpush(serversKey, url, function (err, reply) {
       if (err) throw err;
-      serversCount++;
       res.send("<p>Server spawned at " + url + ".</p>");
     });
   });
@@ -169,7 +165,8 @@ app.get('/listservers', function (req, res) {
 app.get('/destroy', function (req, res) {
   client.llen(serversKey, function (err, reply) {
     if (err) throw err;
-    if (parseInt(reply) == 0) {
+    serversCount = parseInt(reply); 
+    if (serversCount == 0) {
       res.send("<p>Nothing to destroy.</p>");
     }
     else {
@@ -177,7 +174,6 @@ app.get('/destroy', function (req, res) {
       client.lindex(serversKey, randomServerIndex, function (err, reply1) {
         if (err) throw err;
         client.lrem(serversKey, 0, reply1, function (err, reply2) {
-          serversCount--;
           res.send("<p>Server at " + reply1 + " destroyed.");
         });
       });
@@ -185,7 +181,7 @@ app.get('/destroy', function (req, res) {
   });
 });
 
-//HTTP SERVER
+//main HTTP server
 var server = app.listen(startPort++, hostname, function () {
   var host = server.address().address;
   var port = server.address().port;
